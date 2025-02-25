@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processador de XML - Notas Fiscais</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+        body {
+            background-color: #000;
+            color: #fff;
+            line-height: 1.5;
+        }
+        .container {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        h1 {
+            font-size: 48px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 40px;
+            background: linear-gradient(90deg, #007AFF, #00C7FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .upload-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 18px;
+            padding: 30px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            margin-bottom: 30px;
+        }
+        .file-input-wrapper {
+            margin: 20px 0;
+            position: relative;
+        }
+        #xmlInput {
+            display: none;
+        }
+        .file-label {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #007AFF;
+            color: #fff;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .file-label:hover {
+            background: #0056b3;
+            transform: scale(1.05);
+        }
+        #processButton {
+            display: block;
+            width: 200px;
+            margin: 20px auto;
+            padding: 16px 32px;
+            background: #007AFF;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        #processButton:hover {
+            background: #0056b3;
+            transform: scale(1.05);
+        }
+        #status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            display: none;
+        }
+        .selected-files {
+            margin-top: 15px;
+            color: #999;
+            font-size: 14px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+        .progress {
+            width: 0%;
+            height: 100%;
+            background: #007AFF;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><strong>MSist <br> xml de NFS-e em PDF</strong></h1>
+        <div class="upload-section">
+            <div class="file-input-wrapper">
+                <label for="xmlInput" class="file-label">Selecionar arquivos XML</label>
+                <input type="file" id="xmlInput" multiple accept=".xml">
+                <div class="selected-files"></div>
+            </div>
+            <button id="processButton">Processar XMLs</button>
+            <div class="progress-bar">
+                <div class="progress"></div>
+            </div>
+            <div id="status"></div>
+        </div>
+        <footer>©Sistema de converter xml de NFS-e em pdf. Atualizado em 25 de fev de 2025. Desenvolvido por Arlan Arnor</footer>
+    </div>
+    <script>
+        window.jsPDF = window.jspdf.jsPDF;
+        
+        // Atualiza a exibição dos arquivos selecionados
+        document.getElementById('xmlInput').addEventListener('change', function(e) {
+            const fileCount = e.target.files.length;
+            const filesText = fileCount > 0
+                ? `${fileCount} arquivo${fileCount > 1 ? 's' : ''} selecionado${fileCount > 1 ? 's' : ''}`
+                : 'Nenhum arquivo selecionado';
+            document.querySelector('.selected-files').textContent = filesText;
+        });
+
+        document.getElementById('processButton').addEventListener('click', async function() {
+            const files = document.getElementById('xmlInput').files;
+            if (files.length === 0) {
+                alert('Por favor, selecione pelo menos um arquivo XML.');
+                return;
+            }
+            
+            const status = document.getElementById('status');
+            status.style.display = 'block';
+            status.textContent = 'Processando arquivos...';
+            
+            const zip = new JSZip();
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const xmlContent = await readFileAsText(file);
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlContent, "text/xml");
+                
+                const pdfData = await generatePDF(xmlDoc);
+                const fileName = file.name.replace('.xml', '.pdf');
+                
+                zip.file(fileName, pdfData);
+                
+                // Atualiza a barra de progresso
+                const progress = ((i + 1) / files.length) * 100;
+                document.querySelector('.progress').style.width = `${progress}%`;
+            }
+            
+            status.textContent = 'Gerando arquivo ZIP...';
+            const zipContent = await zip.generateAsync({type: 'blob'});
+            const downloadLink = document.createElement('a');
+            downloadLink.href = URL.createObjectURL(zipContent);
+            downloadLink.download = 'notas_fiscais.zip';
+            downloadLink.click();
+            
+            status.textContent = 'Processamento concluído!';
+        });
+
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = e => reject(e);
+                reader.readAsText(file);
+            });
+        }
+        function getXMLValue(xmlDoc, path, defaultValue = '') {
+            try {
+                const tags = path.split(' ');
+                let element = xmlDoc;
+                
+                for (const tag of tags) {
+                    if (tag.includes("@")) {
+                        // É um atributo
+                        const [elementName, attrName] = tag.split('@');
+                        if (elementName) element = element.getElementsByTagName(elementName)[0];
+                        if (!element) return defaultValue;
+                        return element.getAttribute(attrName) || defaultValue;
+                    } else {
+                        // É um elemento normal
+                        element = element.getElementsByTagName(tag)[0];
+                        if (!element) return defaultValue;
+                    }
+                }
+                
+                return element.textContent || defaultValue;
+            } catch (e) {
+                console.error("Erro ao extrair valor XML:", e);
+                return defaultValue;
+            }
+        }
+
+        function formatarData(dataStr) {
+            if (!dataStr) return '';
+            
+            if (dataStr.includes('T')) {
+                // Formato: 2024-01-20T08:00:52.81
+                const [dataPart, horaPart] = dataStr.split('T');
+                const [ano, mes, dia] = dataPart.split('-');
+                const hora = horaPart.split('.')[0];
+                return `${dia}/${mes}/${ano} ${hora}`;
+            } else {
+                // Formato: 2024-01-08 (para competência)
+                const partes = dataStr.split('-');
+                if (partes.length >= 2) {
+                    return `${partes[1]}/${partes[0]}`;
+                }
+                return dataStr;
+            }
+        }
+
+        function formatCurrency(value) {
+            if (!value && value !== 0) return '0,00';
+            
+            if (typeof value === 'string') {
+                value = parseFloat(value.replace(',', '.'));
+            }
+            
+            return value.toLocaleString('pt-BR', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+        }
+        
+        // Nova função para formatar o código do município
+        function formatarMunicipio(codigoMunicipio) {
+            if (codigoMunicipio === "2802908") {
+                return "Itabaiana";
+            }
+            return codigoMunicipio;
+        }
+        function generatePDF(xmlDoc) {
+            return new Promise((resolve) => {
+                // Adiciona a fonte Montserrat (precisaria adicionar arquivos da fonte)
+                const doc = new jsPDF();
+                
+                let y = 20; // Posição Y inicial
+                const margin = 20; // Margem à esquerda
+                const pageWidth = doc.internal.pageSize.width;
+                const lineHeight = 5; // Reduzido para espaçamento simples
+                
+                // Extrair ID da nota
+                let notaId = getXMLValue(xmlDoc, "InfNfse@Id", "");
+                if (notaId) {
+                    notaId = notaId.replace("NFSe", "").split("_")[0];
+                }
+                
+                // Função para adicionar linha
+                function addLine(y) {
+                    doc.setDrawColor(0);
+                    doc.line(margin, y, pageWidth - margin, y);
+                    return y + 2;
+                }
+                
+                // Função para adicionar texto com estilo
+                function addText(text, x, y, options = {}) {
+                    const defaults = {
+                        align: "left",
+                        fontSize: 8, // Reduzido para 8 (era 10)
+                        bold: false
+                    };
+                    
+                    const settings = {...defaults, ...options};
+                    
+                    doc.setFontSize(settings.fontSize);
+                    doc.setFont("helvetica", settings.bold ? "bold" : "normal");
+                    doc.setTextColor(0, 0, 0);
+                    
+                    const lines = doc.splitTextToSize(text, pageWidth - (margin * 2));
+                    doc.text(lines, x, y, { align: settings.align });
+                    
+                    return y + (lines.length * lineHeight);
+                }
+                
+                // NÚMERO DA NOTA
+                y = addText(notaId, pageWidth - margin, y, {
+                    fontSize: 10, // Reduzido para 10 (era 12)
+                    bold: true,
+                    align: 'right'
+                });
+                
+                // SEPARADOR
+                y = addLine(y);
+                
+                // CABEÇALHO
+                y = addText("MUNICÍPIO DE ITABAIANA", pageWidth/2, y + 5, {
+                    fontSize: 12, // Reduzido para 12 (era 14)
+                    bold: true,
+                    align: "center"
+                });
+                
+                y = addText("Secretaria Municipal da Fazenda", pageWidth/2, y + 4, {
+                    fontSize: 10, // Reduzido para 10 (era 12)
+                    align: "center"
+                });
+                
+                y = addText("Departamento Tributário - Rua Francisco Santos, Nº 160 - Centro - CEP: 49.500-000 - Itabaiana/SE Telefone: (79) 3431-9711", 
+                    pageWidth/2, y + 4, {
+                        align: "center"
+                    });
+                
+                y += lineHeight; // Linha em branco
+                
+                // SEPARADOR
+                y = addLine(y);
+                
+                // NOTA FISCAL
+                y = addText("NOTA FISCAL DE SERVIÇOS ELETRÔNICA - NFS-e", pageWidth/2, y + 4, {
+                    fontSize: 12, // Reduzido para 12 (era 14)
+                    bold: true,
+                    align: "center"
+                });
+                
+                const dataEmissao = formatarData(getXMLValue(xmlDoc, "DataEmissao"));
+                y = addText(`Emissão (Horário de Brasília): ${dataEmissao}`, margin, y + 4);
+                
+                const competencia = formatarData(getXMLValue(xmlDoc, "Competencia"));
+                y = addText(`Período de Competência: ${competencia}`, margin, y + 4);
+                
+                // MODIFICADO: Formatar município de prestação do serviço
+                const codMunicipio = getXMLValue(xmlDoc, "CodigoMunicipio");
+                const municipioFormatado = formatarMunicipio(codMunicipio);
+                y = addText(`Município de Prestação do Serviço: ${municipioFormatado}`, margin, y + 4);
+                
+                y = addText("Reg. Especial Tributação: Microempresário e Empresa de Pequeno Porte", margin, y + 4);
+                
+                // MODIFICADO: Formatar município de incidência
+                const municipioIncidencia = getXMLValue(xmlDoc, "MunicipioIncidencia");
+                const incidenciaFormatada = formatarMunicipio(municipioIncidencia);
+                y = addText(`Exigibilidade do ISS: Exigível em ${incidenciaFormatada}`, margin, y + 4);
+                
+                y += lineHeight; // Linha em branco
+                
+                // SEPARADOR
+                y = addLine(y);
+                
+                // PRESTADOR DE SERVIÇOS
+                y = addText("PRESTADOR DE SERVIÇOS", margin, y + 4, {
+                    fontSize: 12, // Reduzido para 12 (era 14)
+                    bold: true
+                });
+                
+                const prestadorRazaoSocial = getXMLValue(xmlDoc, "PrestadorServico RazaoSocial");
+                y = addText(`Razão Social: ${prestadorRazaoSocial}`, margin, y + 4);
+                
+                const prestadorNomeFantasia = getXMLValue(xmlDoc, "PrestadorServico NomeFantasia");
+                y = addText(`Nome Fantasia: ${prestadorNomeFantasia}`, margin, y + 4);
+                
+                // Informações na mesma linha
+                const prestadorCnpj = getXMLValue(xmlDoc, "PrestadorServico Cnpj");
+                const prestadorInscMunicipal = getXMLValue(xmlDoc, "PrestadorServico InscricaoMunicipal");
+                y = addText(`CPF/CNPJ: ${prestadorCnpj}    Inscrição Municipal: ${prestadorInscMunicipal}    Inscrição Estadual: `, margin, y + 4);
+                
+                // Informações na mesma linha
+                y = addText("Simples Nacional: SIM    Incentivador Cultural: NÃO", margin, y + 4);
+                
+                // Informações na mesma linha
+                const prestadorEmail = getXMLValue(xmlDoc, "PrestadorServico Email");
+                const prestadorTelefone = getXMLValue(xmlDoc, "PrestadorServico Telefone");
+                y = addText(`Email: ${prestadorEmail}    Fone/Fax: ${prestadorTelefone}`, margin, y + 4);
+                
+                // Endereço
+                const prestadorEndereco = getXMLValue(xmlDoc, "PrestadorServico Endereco Endereco");
+                const prestadorNumero = getXMLValue(xmlDoc, "PrestadorServico Endereco Numero");
+                const prestadorBairro = getXMLValue(xmlDoc, "PrestadorServico Endereco Bairro");
+                const prestadorCodMunicipio = getXMLValue(xmlDoc, "PrestadorServico Endereco CodigoMunicipio");
+                // MODIFICADO: Formatar município do prestador
+                const prestadorMunicipioFormatado = formatarMunicipio(prestadorCodMunicipio);
+                const prestadorUf = getXMLValue(xmlDoc, "PrestadorServico Endereco Uf");
+                const prestadorCep = getXMLValue(xmlDoc, "PrestadorServico Endereco Cep");
+                
+                const enderecoCompleto = `Endereço: ${prestadorEndereco}, ${prestadorNumero}, ${prestadorBairro}, ${prestadorMunicipioFormatado}, ${prestadorUf}, ${prestadorCep}`;
+                y = addText(enderecoCompleto, margin, y + 4);
+                
+                y += lineHeight; // Linha em branco
+                // SEPARADOR
+                y = addLine(y);
+                
+                // TOMADOR DE SERVIÇOS
+                y = addText("TOMADOR DE SERVIÇOS", margin, y + 4, {
+                    fontSize: 12, // Reduzido para 12 (era 14)
+                    bold: true
+                });
+                
+                const tomadorRazaoSocial = getXMLValue(xmlDoc, "Tomador RazaoSocial");
+                y = addText(`Nome/Razão Social: ${tomadorRazaoSocial}`, margin, y + 4);
+                
+                // CPF/CNPJ
+                let tomadorCpfCnpj = getXMLValue(xmlDoc, "Tomador CpfCnpj Cpf");
+                if (!tomadorCpfCnpj) {
+                    tomadorCpfCnpj = getXMLValue(xmlDoc, "Tomador CpfCnpj Cnpj");
+                }
+                
+                const tomadorInscMunicipal = getXMLValue(xmlDoc, "Tomador InscricaoMunicipal");
+                y = addText(`CPF/CNPJ: ${tomadorCpfCnpj}    Inscrição Municipal: ${tomadorInscMunicipal}    Inscrição Estadual: `, margin, y + 4);
+                
+                // Informações na mesma linha
+                const tomadorTelefone = getXMLValue(xmlDoc, "Tomador Telefone");
+                const tomadorEmail = getXMLValue(xmlDoc, "Tomador Email");
+                y = addText(`Fone/Fax: ${tomadorTelefone}    E-mail: ${tomadorEmail}`, margin, y + 4);
+                
+                // Endereço
+                const tomadorEndereco = getXMLValue(xmlDoc, "Tomador Endereco Endereco");
+                const tomadorNumero = getXMLValue(xmlDoc, "Tomador Endereco Numero");
+                const tomadorBairro = getXMLValue(xmlDoc, "Tomador Endereco Bairro");
+                const tomadorCodMunicipio = getXMLValue(xmlDoc, "Tomador Endereco CodigoMunicipio");
+                // MODIFICADO: Formatar município do tomador
+                const tomadorMunicipioFormatado = formatarMunicipio(tomadorCodMunicipio);
+                const tomadorUf = getXMLValue(xmlDoc, "Tomador Endereco Uf");
+                const tomadorCep = getXMLValue(xmlDoc, "Tomador Endereco Cep");
+                
+                const tomadorEnderecoCompleto = `Endereço: ${tomadorEndereco}, ${tomadorNumero}, ${tomadorBairro}, ${tomadorMunicipioFormatado}, ${tomadorUf}, ${tomadorCep}`;
+                y = addText(tomadorEnderecoCompleto, margin, y + 4);
+                
+                y += lineHeight; // Linha em branco
+                
+                // SEPARADOR
+                y = addLine(y);
+                
+                // SERVIÇO PRESTADO
+                y = addText("SERVIÇO PRESTADO", margin, y + 4, {
+                    fontSize: 12, // Reduzido para 12 (era 14)
+                    bold: true
+                });
+                
+                // Código do serviço
+                const itemListaServico = getXMLValue(xmlDoc, "ItemListaServico");
+                let codigoServico = "";
+                if (itemListaServico === "0801") {
+                    codigoServico = "0801 - Ensino regular pré-escolar, fundamental, médio e superior.";
+                } else if (itemListaServico === "9999") {
+                    codigoServico = "9999 - Outros Serviços";
+                } else {
+                    codigoServico = itemListaServico;
+                }
+                
+                const codigoCnae = getXMLValue(xmlDoc, "CodigoCnae");
+                y = addText(`Código do serviço: ${codigoServico}    CNAE: ${codigoCnae}`, margin, y + 4);
+                
+                y += lineHeight; // Linha em branco
+                
+                // SEPARADOR
+                y = addLine(y);
+                
+                // DESCRIÇÃO DOS SERVIÇOS
+                y = addText("DESCRIÇÃO DOS SERVIÇOS", margin, y + 4, {
+                    fontSize: 12, // Reduzido para 12 (era 14)
+                    bold: true
+                });
+                
+                const discriminacao = getXMLValue(xmlDoc, "Discriminacao");
+                y = addText(discriminacao, margin, y + 4);
+                
+                y += lineHeight * 2; // Duas linhas em branco
+                
+                // Verificar se é necessário adicionar uma nova página
+                if (y > doc.internal.pageSize.height - 100) {
+                    doc.addPage();
+                    y = 20;
+                }
+                
+                // SEPARADOR
+                y = addLine(y);
+                
+                // RETENÇÕES FEDERAIS
+                y = addText("RETENÇÕES FEDERAIS", margin, y + 4, {
+                    fontSize: 12, // Reduzido para 12 (era 14)
+                    bold: true
+                });
+                
+                // Valores das retenções
+                const valorPis = getXMLValue(xmlDoc, "ValorPis", "0,00");
+                const valorCofins = getXMLValue(xmlDoc, "ValorCofins", "0,00");
+                const valorInss = getXMLValue(xmlDoc, "ValorInss", "0,00");
+                const valorIr = getXMLValue(xmlDoc, "ValorIr", "0,00");
+                const valorCsll = getXMLValue(xmlDoc, "ValorCsll", "0,00");
+                const outrasRetencoes = getXMLValue(xmlDoc, "OutrasRetencoes", "0,00");
+                
+                const retencoesText = `PIS (R$): ${formatCurrency(valorPis)}    COFINS (R$): ${formatCurrency(valorCofins)}    INSS (R$): ${formatCurrency(valorInss)}    IR (R$): ${formatCurrency(valorIr)}    CSLL (R$): ${formatCurrency(valorCsll)}    Outras Retenções (R$): ${formatCurrency(outrasRetencoes)}`;
+                y = addText(retencoesText, margin, y + 4);
+                
+                y += lineHeight; // Linha em branco
+                // SEPARADOR
+                y = addLine(y);
+                
+                // VALORES
+                y = addText("VALORES", margin, y + 4, {
+                    fontSize: 12, // Reduzido para 12 (era 14)
+                    bold: true
+                });
+                
+                // Valores da nota (MODIFICADO: usando BaseCalculo para os valores solicitados)
+                const baseCalculo = getXMLValue(xmlDoc, "ValoresNfse BaseCalculo");
+                const valorDeducoes = getXMLValue(xmlDoc, "ValoresNfse ValorDeducoes", "0,00");
+                
+                // Usando baseCalculo para "Valor dos Serviços" conforme solicitado
+                y = addText(`Valor dos Serviços (R$): ${formatCurrency(baseCalculo)}    Deduções (R$): ${formatCurrency(valorDeducoes)}`, margin, y + 4);
+                
+                const descontoIncondicionado = getXMLValue(xmlDoc, "ValoresNfse DescontoIncondicionado", "0,00");
+                const descontoCondicionado = getXMLValue(xmlDoc, "ValoresNfse DescontoCondicionado", "0,00");
+                
+                y = addText(`Desconto Incondicionado(R$): ${formatCurrency(descontoIncondicionado)}    Desconto Condicionado (R$): ${formatCurrency(descontoCondicionado)}`, margin, y + 4);
+                
+                const aliquota = getXMLValue(xmlDoc, "ValoresNfse Aliquota");
+                const valorIss = getXMLValue(xmlDoc, "ValoresNfse ValorIss", "0,00");
+                const issRetido = getXMLValue(xmlDoc, "ValoresNfse IssRetido", "0,00");
+                
+                y = addText(`Base de Cálculo (R$): ${formatCurrency(baseCalculo)}    Alíquota (%): ${aliquota}    ISS: ${formatCurrency(valorIss)}    ISS Retido (R$): ${formatCurrency(issRetido)}`, margin, y + 4);
+                
+                const valorLiquidoNfse = getXMLValue(xmlDoc, "ValoresNfse ValorLiquidoNfse");
+                
+                // Usando baseCalculo para "Valor Total da Nota" conforme solicitado
+                y = addText(`Valor Líquido (R$): ${formatCurrency(valorLiquidoNfse)}    Valor Total da Nota (R$): ${formatCurrency(baseCalculo)}`, margin, y + 4);
+                
+                y += lineHeight; // Linha em branco
+                
+                // SEPARADOR
+                y = addLine(y);
+                
+                // OUTRAS INFORMAÇÕES
+                y = addText("OUTRAS INFORMAÇÕES", margin, y + 4, {
+                    fontSize: 12, // Reduzido para 12 (era 14)
+                    bold: true
+                });
+                
+                // MODIFICADO: usando o valor da tag OutrasInformacoes ao invés do texto fixo
+                const outrasInformacoes = getXMLValue(xmlDoc, "OutrasInformacoes", "");
+                y = addText(outrasInformacoes, margin, y + 4);
+                
+                y = addText("Optante do Simples Nacional.", margin, y + 4);
+                y = addText("Essas informações são geradas com base nos arquivos xml coletados do site https://itabaianase.webiss.com.br/", margin, y + 4);
+                
+                resolve(doc.output('blob'));
+            });
+        }
+    </script>
+</body>
+</html>
